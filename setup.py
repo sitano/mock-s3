@@ -16,6 +16,8 @@ setup(
     name=PROJECT,
     version=VERSION,
 
+    python_requires='>=3',
+
     description='A python port of Fake-S3.',
     long_description=long_description,
 

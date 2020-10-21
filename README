@@ -1,18 +1,21 @@
-A python port of Fake-S3
+A python3 port of Fake-S3
 
 INSTALL:
-$ python setup.py install
+
+    $ python setup.py install
 
 RUN:
-$ make start
+
+    $ make start
 
 or
 
-$ python -m mock_s3.main
+    $ python -m mock_s3.main
 
 or
 
-$ LOGLEVEL=DEBUG python -m mock_s3.main
+    $ LOGLEVEL=DEBUG python -m mock_s3.main
 
 AWS S3 CLI:
-$ aws s3 --endpoint http://localhost:8000 ls
+
+    $ aws s3 --endpoint http://localhost:8000 ls
