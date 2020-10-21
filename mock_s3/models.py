@@ -1,3 +1,6 @@
+from builtins import object
+
+
 class Bucket(object):
     def __init__(self, name, creation_date):
         self.name = name

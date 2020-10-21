@@ -1,23 +1,28 @@
+#!/usr/bin/env python
+
 import argparse
 import logging
 import os
-import sys
-import urlparse
+import urllib.error
+import urllib.parse
+import urllib.request
 import xml.etree.ElementTree as ET
-from BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
-from SocketServer import ThreadingMixIn
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from socketserver import ThreadingMixIn
 
-from actions import delete_item, delete_items, get_acl, get_item, list_buckets, ls_bucket
-from file_store import FileStore
+import sys
 
+from .actions import delete_item, delete_items, get_acl, get_item, list_buckets, ls_bucket
+from .file_store import FileStore
 
 logging.basicConfig(level=logging.INFO)
 
 
 class S3Handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        parsed_path = urlparse.urlparse(self.path)
-        qs = urlparse.parse_qs(parsed_path.query, True)
+        parsed_path = urllib.parse.urlparse(self.path)
+        qs = urllib.parse.parse_qs(parsed_path.query, True)
         host = self.headers['host'].split(':')[0]
         path = parsed_path.path
         bucket_name = None
@@ -27,7 +32,7 @@ class S3Handler(BaseHTTPRequestHandler):
         mock_hostname = self.server.mock_hostname
         if host != mock_hostname and mock_hostname in host:
             idx = host.index(mock_hostname)
-            bucket_name = host[:idx-1]
+            bucket_name = host[:idx - 1]
 
         if path == '/' and not bucket_name:
             req_type = 'list_buckets'
@@ -61,11 +66,15 @@ class S3Handler(BaseHTTPRequestHandler):
             get_item(self, bucket_name, item_name)
 
         else:
-            self.wfile.write('%s: [%s] %s' % (req_type, bucket_name, item_name))
+            self.write(f'{req_type}: [{bucket_name}] {item_name}')
+
+    def write(self, res) -> int:
+        self.wfile.write(res.encode())
+
 
     def do_DELETE(self):
-        parsed_path = urlparse.urlparse(self.path)
-        qs = urlparse.parse_qs(parsed_path.query, True)
+        parsed_path = urllib.parse.urlparse(self.path)
+        qs = urllib.parse.parse_qs(parsed_path.query, True)
         host = self.headers['host'].split(':')[0]
         path = parsed_path.path
         bucket_name = None
@@ -74,7 +83,7 @@ class S3Handler(BaseHTTPRequestHandler):
         mock_hostname = self.server.mock_hostname
         if host != mock_hostname and mock_hostname in host:
             idx = host.index(mock_hostname)
-            bucket_name = host[:idx-1]
+            bucket_name = host[:idx - 1]
 
         if not bucket_name:
             bucket_name, sep, item_name = path.strip('/').partition('/')
@@ -84,7 +93,7 @@ class S3Handler(BaseHTTPRequestHandler):
         if bucket_name and item_name:
             delete_item(self, bucket_name, item_name)
         else:
-            self.wfile.write('%s: [%s] %s' % ('DELETE', bucket_name, item_name))
+            self.write('%s: [%s] %s' % ('DELETE', bucket_name, item_name))
 
         self.send_response(204)
         self.send_header('Content-Length', '0')
@@ -94,8 +103,8 @@ class S3Handler(BaseHTTPRequestHandler):
         return self.do_GET()
 
     def do_POST(self):
-        parsed_path = urlparse.urlparse(self.path)
-        qs = urlparse.parse_qs(parsed_path.query, True)
+        parsed_path = urllib.parse.urlparse(self.path)
+        qs = urllib.parse.parse_qs(parsed_path.query, True)
         host = self.headers['host'].split(':')[0]
         path = parsed_path.path
         bucket_name = None
@@ -105,7 +114,7 @@ class S3Handler(BaseHTTPRequestHandler):
         mock_hostname = self.server.mock_hostname
         if host != mock_hostname and mock_hostname in host:
             idx = host.index(mock_hostname)
-            bucket_name = host[:idx-1]
+            bucket_name = host[:idx - 1]
 
         if path == '/' and bucket_name and 'delete' in qs:
             req_type = 'delete_keys'
@@ -128,11 +137,11 @@ class S3Handler(BaseHTTPRequestHandler):
                 keys.append(obj.find('Key').text)
             delete_items(self, bucket_name, keys)
         else:
-            self.wfile.write('%s: [%s] %s' % (req_type, bucket_name, item_name))
+            self.write('%s: [%s] %s' % (req_type, bucket_name, item_name))
 
     def do_PUT(self):
-        parsed_path = urlparse.urlparse(self.path)
-        qs = urlparse.parse_qs(parsed_path.query, True)
+        parsed_path = urllib.parse.urlparse(self.path)
+        qs = urllib.parse.parse_qs(parsed_path.query, True)
         host = self.headers['host'].split(':')[0]
         path = parsed_path.path
         bucket_name = None
@@ -142,7 +151,7 @@ class S3Handler(BaseHTTPRequestHandler):
         mock_hostname = self.server.mock_hostname
         if host != mock_hostname and mock_hostname in host:
             idx = host.index(mock_hostname)
-            bucket_name = host[:idx-1]
+            bucket_name = host[:idx - 1]
 
         if path == '/' and bucket_name:
             req_type = 'create_bucket'
@@ -187,8 +196,23 @@ class S3Handler(BaseHTTPRequestHandler):
         self.send_header('Content-Type', 'text/xml')
         self.end_headers()
 
+    def log_request(self, code='-', size='-'):
+        """Log an accepted request.
 
-class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
+        This is called by send_response().
+
+        """
+        if isinstance(code, HTTPStatus):
+            code = code.value
+        self.log_message('"%s" %s %s\n%s',
+                     self.requestline, str(code), str(size), self.headers)
+
+
+class S3HTTPServer(ThreadingMixIn, HTTPServer):
+    file_store = None
+    mock_hostname = ''
+    pull_from_aws = False
+
     def set_file_store(self, file_store):
         self.file_store = file_store
 
@@ -199,13 +223,36 @@ class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
         self.pull_from_aws = pull_from_aws
 
 
-def main(argv=sys.argv[1:]):
+def main(argv=None):
+    if argv is None:
+        argv = sys.argv[1:]
+
+    args = parse(argv)
+
+    logging.root.setLevel(level=os.environ.get('LOGLEVEL', 'INFO'))
+
+    server = S3HTTPServer((args.hostname, args.port), S3Handler)
+    server.set_file_store(FileStore(args.root))
+    server.set_mock_hostname(args.hostname)
+    server.set_pull_from_aws(args.pull_from_aws)
+
+    logging.info('Starting server at %s:%d, use <Ctrl-C> to stop' % (args.hostname, args.port))
+
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+
+    server.server_close()
+
+
+def parse(argv=None):
     parser = argparse.ArgumentParser(description='A Mock-S3 server.')
     parser.add_argument('--hostname', dest='hostname', action='store',
                         default='localhost',
                         help='Hostname to listen on.')
     parser.add_argument('--port', dest='port', action='store',
-                        default=10001, type=int,
+                        default=8000, type=int,
                         help='Port to run server on.')
     parser.add_argument('--root', dest='root', action='store',
                         default='%s/s3store' % os.environ['HOME'],
@@ -213,15 +260,7 @@ def main(argv=sys.argv[1:]):
     parser.add_argument('--pull-from-aws', dest='pull_from_aws', action='store_true',
                         default=False,
                         help='Pull non-existent keys from aws.')
-    args = parser.parse_args()
-
-    server = ThreadedHTTPServer((args.hostname, args.port), S3Handler)
-    server.set_file_store(FileStore(args.root))
-    server.set_mock_hostname(args.hostname)
-    server.set_pull_from_aws(args.pull_from_aws)
-
-    print 'Starting server, use <Ctrl-C> to stop'
-    server.serve_forever()
+    return parser.parse_args(argv)
 
 
 if __name__ == '__main__':

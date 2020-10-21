@@ -1,7 +1,9 @@
-import urllib2
 import datetime
+import urllib.error
+import urllib.parse
+import urllib.request
 
-import xml_templates
+from . import xml_templates
 
 
 def list_buckets(handler):
@@ -13,7 +15,7 @@ def list_buckets(handler):
     for bucket in buckets:
         xml += xml_templates.buckets_bucket_xml.format(bucket=bucket)
     xml = xml_templates.buckets_xml.format(buckets=xml)
-    handler.wfile.write(xml)
+    handler.write(xml)
 
 
 def ls_bucket(handler, bucket_name, qs):
@@ -33,26 +35,26 @@ def ls_bucket(handler, bucket_name, qs):
         for s3_item in bucket_query.matches:
             contents += xml_templates.bucket_query_content_xml.format(s3_item=s3_item)
         xml = xml_templates.bucket_query_xml.format(bucket_query=bucket_query, contents=contents)
-        handler.wfile.write(xml)
+        handler.write(xml)
     else:
         handler.send_response(404)
         handler.send_header('Content-Type', 'application/xml')
         handler.end_headers()
         xml = xml_templates.error_no_such_bucket_xml.format(name=bucket_name)
-        handler.wfile.write(xml)
+        handler.write(xml)
 
 
 def get_acl(handler):
     handler.send_response(200)
     handler.send_header('Content-Type', 'application/xml')
     handler.end_headers()
-    handler.wfile.write(xml_templates.acl_xml)
+    handler.write(xml_templates.acl_xml)
 
 
 def load_from_aws(handler, bucket_name, item_name):
     bucket = handler.server.file_store.get_bucket(bucket_name)
     aws_url = "http://s3.amazonaws.com/%s/%s" % (bucket_name, item_name)
-    response = urllib2.urlopen(aws_url)
+    response = urllib.request.urlopen(aws_url)
     data = response.read()
     response_headers = response.info()
     return handler.server.file_store.store_data(bucket, item_name, response_headers, data)
@@ -95,7 +97,7 @@ def get_item(handler, bucket_name, item_name):
         handler.send_header('Content-Length', '%s' % bytes_to_read)
         handler.end_headers()
         item.io.seek(start)
-        handler.wfile.write(item.io.read(bytes_to_read))
+        handler.write(item.io.read(bytes_to_read))
         return
 
     handler.send_response(200)
@@ -106,7 +108,7 @@ def get_item(handler, bucket_name, item_name):
     handler.send_header('Content-Length', content_length)
     handler.end_headers()
     if handler.command == 'GET':
-        handler.wfile.write(item.io.read())
+        handler.write(item.io.read())
 
 
 def delete_item(handler, bucket_name, item_name):
@@ -122,4 +124,4 @@ def delete_items(handler, bucket_name, keys):
         delete_item(handler, bucket_name, key)
         xml += xml_templates.deleted_deleted_xml.format(key=key)
     xml = xml_templates.deleted_xml.format(contents=xml)
-    handler.wfile.write(xml)
+    handler.write(xml)
