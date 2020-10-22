@@ -217,7 +217,7 @@ class FileStore(object):
             metadata['content_type'] = config.get('metadata', 'content_type')
             metadata['creation_date'] = config.get('metadata', 'creation_date')
 
-        m = md5.new()
+        m = hashlib.md5()
 
         headers = {}
         for key in handler.headers:
@@ -255,7 +255,7 @@ class FileStore(object):
         config.set('metadata', 'creation_date', metadata['creation_date'])
         if 'modified_date' in metadata:
             config.set('metadata', 'modified_date', metadata['modified_date'])
-        with open(metafile, 'wb') as configfile:
+        with open(metafile, 'w') as configfile:
             config.write(configfile)
         return S3Item(key, **metadata)
 
