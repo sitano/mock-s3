@@ -68,10 +68,6 @@ class S3Handler(BaseHTTPRequestHandler):
         else:
             self.write(f'{req_type}: [{bucket_name}] {item_name}')
 
-    def write(self, res) -> int:
-        self.wfile.write(res.encode())
-
-
     def do_DELETE(self):
         parsed_path = urllib.parse.urlparse(self.path)
         qs = urllib.parse.parse_qs(parsed_path.query, True)
@@ -204,8 +200,18 @@ class S3Handler(BaseHTTPRequestHandler):
         """
         if isinstance(code, HTTPStatus):
             code = code.value
-        self.log_message('"%s" %s %s\n%s',
-                     self.requestline, str(code), str(size), self.headers)
+        self.log_message('"%s" %s %s\n\n%s', self.requestline, str(code), str(size),
+                         self.headers)
+
+    def send_header(self, keyword, value):
+        """Logs response header to DEBUG"""
+        logging.debug("%s: %s" % (keyword, value))
+        super().send_header(keyword, value)
+
+    def write(self, res) -> int:
+        """Logs response body to DEBUG"""
+        logging.debug("Write:\n%s" % res)
+        return self.wfile.write(res.encode())
 
 
 class S3HTTPServer(ThreadingMixIn, HTTPServer):
